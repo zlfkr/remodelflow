@@ -1,25 +1,13 @@
--- Enable Row Level Security on all tables
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE project_invites ENABLE ROW LEVEL SECURITY;
+-- Fix RLS policies for customers and projects tables
+-- Use EXISTS instead of IN subqueries for better performance and reliability
 
--- Profiles policies
--- Users can read and update their own profile
-CREATE POLICY "Users can view own profile"
-  ON profiles FOR SELECT
-  USING (auth.uid() = id);
+-- Drop existing customer policies
+DROP POLICY IF EXISTS "Owners can view their customers" ON customers;
+DROP POLICY IF EXISTS "Owners can insert their customers" ON customers;
+DROP POLICY IF EXISTS "Owners can update their customers" ON customers;
+DROP POLICY IF EXISTS "Owners can delete their customers" ON customers;
 
-CREATE POLICY "Users can update own profile"
-  ON profiles FOR UPDATE
-  USING (auth.uid() = id);
-
--- Note: Profile insertion is handled by the SECURITY DEFINER trigger function
--- which bypasses RLS, so no INSERT policy is needed
-
--- Customers policies
--- Owners can manage their own customers
--- Simplified policy: check if owner_id matches current user AND user has owner role
+-- Recreate customer policies with simplified logic
 CREATE POLICY "Owners can view their customers"
   ON customers FOR SELECT
   USING (
@@ -64,15 +52,13 @@ CREATE POLICY "Owners can delete their customers"
     )
   );
 
--- Customers can view their own customer record (by email match)
-CREATE POLICY "Customers can view own customer record"
-  ON customers FOR SELECT
-  USING (
-    email = (SELECT email FROM auth.users WHERE id = auth.uid())
-  );
+-- Drop existing project policies
+DROP POLICY IF EXISTS "Owners can view their projects" ON projects;
+DROP POLICY IF EXISTS "Owners can insert their projects" ON projects;
+DROP POLICY IF EXISTS "Owners can update their projects" ON projects;
+DROP POLICY IF EXISTS "Owners can delete their projects" ON projects;
 
--- Projects policies
--- Owners can manage their own projects
+-- Recreate project policies
 CREATE POLICY "Owners can view their projects"
   ON projects FOR SELECT
   USING (
@@ -117,19 +103,10 @@ CREATE POLICY "Owners can delete their projects"
     )
   );
 
--- Customers can view projects assigned to them
-CREATE POLICY "Customers can view assigned projects"
-  ON projects FOR SELECT
-  USING (
-    customer_id IN (
-      SELECT id FROM customers WHERE email = (
-        SELECT email FROM auth.users WHERE id = auth.uid()
-      )
-    )
-  );
+-- Drop and recreate project_invites policies
+DROP POLICY IF EXISTS "Owners can view invites for their projects" ON project_invites;
+DROP POLICY IF EXISTS "Owners can create invites for their projects" ON project_invites;
 
--- Project invites policies
--- Owners can manage invites for their projects
 CREATE POLICY "Owners can view invites for their projects"
   ON project_invites FOR SELECT
   USING (
@@ -153,8 +130,3 @@ CREATE POLICY "Owners can create invites for their projects"
       AND pr.role = 'owner'
     )
   );
-
--- Anyone with a valid token can view the invite (for accepting)
-CREATE POLICY "Anyone can view invite by token"
-  ON project_invites FOR SELECT
-  USING (true);

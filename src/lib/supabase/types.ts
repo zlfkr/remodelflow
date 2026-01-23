@@ -116,6 +116,160 @@ export interface Database {
           created_at?: string
         }
       }
+      project_messages: {
+        Row: {
+          id: string
+          project_id: string
+          sender_role: 'owner' | 'customer'
+          sender_id: string
+          message: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          sender_role: 'owner' | 'customer'
+          sender_id: string
+          message: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          sender_role?: 'owner' | 'customer'
+          sender_id?: string
+          message?: string
+          created_at?: string
+        }
+      }
+      project_designs: {
+        Row: {
+          id: string
+          project_id: string
+          file_url: string
+          file_name: string
+          file_type: string | null
+          file_size: number | null
+          version: number
+          status: 'draft' | 'in_review' | 'approved' | 'revised'
+          uploaded_by: string
+          description: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          file_url: string
+          file_name: string
+          file_type?: string | null
+          file_size?: number | null
+          version?: number
+          status?: 'draft' | 'in_review' | 'approved' | 'revised'
+          uploaded_by: string
+          description?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          file_url?: string
+          file_name?: string
+          file_type?: string | null
+          file_size?: number | null
+          version?: number
+          status?: 'draft' | 'in_review' | 'approved' | 'revised'
+          uploaded_by?: string
+          description?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      design_approvals: {
+        Row: {
+          id: string
+          design_id: string
+          approved_by: string
+          approved_at: string
+          comment: string | null
+        }
+        Insert: {
+          id?: string
+          design_id: string
+          approved_by: string
+          approved_at?: string
+          comment?: string | null
+        }
+        Update: {
+          id?: string
+          design_id?: string
+          approved_by?: string
+          approved_at?: string
+          comment?: string | null
+        }
+      }
+      project_activity: {
+        Row: {
+          id: string
+          project_id: string
+          type: 'design_uploaded' | 'design_approved' | 'status_changed' | 'message_sent' | 'project_created'
+          description: string
+          metadata: Json | null
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          type: 'design_uploaded' | 'design_approved' | 'status_changed' | 'message_sent' | 'project_created'
+          description: string
+          metadata?: Json | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          type?: 'design_uploaded' | 'design_approved' | 'status_changed' | 'message_sent' | 'project_created'
+          description?: string
+          metadata?: Json | null
+          created_by?: string | null
+          created_at?: string
+        }
+      }
+      notifications: {
+        Row: {
+          id: string
+          user_id: string
+          project_id: string
+          type: 'new_message' | 'design_uploaded' | 'design_approved'
+          title: string
+          message: string
+          read_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          project_id: string
+          type: 'new_message' | 'design_uploaded' | 'design_approved'
+          title: string
+          message: string
+          read_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          project_id?: string
+          type?: 'new_message' | 'design_uploaded' | 'design_approved'
+          title?: string
+          message?: string
+          read_at?: string | null
+          created_at?: string
+        }
+      }
     }
     Views: {
       [_ in never]: never
