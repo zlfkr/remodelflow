@@ -3,27 +3,59 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import ProjectMessages from './ProjectMessages'
+import ProjectDesigns from './ProjectDesigns'
+import ProjectActivity from './ProjectActivity'
+import StatusProgressControl from './StatusProgressControl'
+import EstimateSection from './EstimateSection'
+import CustomerEstimateView from './CustomerEstimateView'
 
 interface Project {
   id: string
   name: string
   status: string
+  owner_id: string
   created_at: string
   updated_at: string
 }
 
 interface ProjectDetailsProps {
   projectId: string
+  userRole?: 'owner' | 'customer'
+  userId?: string
 }
 
-export default function ProjectDetails({ projectId }: ProjectDetailsProps) {
+export default function ProjectDetails({ projectId, userRole, userId }: ProjectDetailsProps) {
   const router = useRouter()
   const [project, setProject] = useState<Project | null>(null)
   const [loading, setLoading] = useState(true)
+  const [actualUserRole, setActualUserRole] = useState<'owner' | 'customer'>(userRole || 'customer')
+  const [actualUserId, setActualUserId] = useState<string>(userId || '')
 
   useEffect(() => {
+    if (!userRole || !userId) {
+      loadUserInfo()
+    }
     loadProject()
-  }, [projectId])
+  }, [projectId, userRole, userId])
+
+  const loadUserInfo = async () => {
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id, role')
+        .eq('id', user.id)
+        .single()
+
+      if (profile) {
+        setActualUserRole(profile.role as 'owner' | 'customer')
+        setActualUserId(profile.id)
+      }
+    }
+  }
 
   const loadProject = async () => {
     const supabase = createClient()
@@ -34,7 +66,13 @@ export default function ProjectDetails({ projectId }: ProjectDetailsProps) {
       .single()
 
     if (data) {
-      setProject(data)
+      // Only update if project data actually changed
+      setProject(prev => {
+        if (!prev || prev.id !== data.id || prev.status !== data.status || prev.name !== data.name) {
+          return data
+        }
+        return prev
+      })
     }
     setLoading(false)
   }
@@ -70,7 +108,16 @@ export default function ProjectDetails({ projectId }: ProjectDetailsProps) {
       </div>
 
       <div className="bg-white rounded-lg shadow p-6 mb-6">
-        <h2 className="text-xl font-semibold mb-4">Project Status</h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold">Project Status</h2>
+          {(actualUserRole === 'owner' || userRole === 'owner') && (
+            <StatusProgressControl 
+              projectId={projectId}
+              currentStatus={project.status}
+              onStatusChange={loadProject}
+            />
+          )}
+        </div>
         
         {/* Status Timeline */}
         <div className="relative">
@@ -80,15 +127,22 @@ export default function ProjectDetails({ projectId }: ProjectDetailsProps) {
                 <div className="flex flex-col items-center">
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
-                      index <= currentStepIndex
+                      index === currentStepIndex
+                        ? 'bg-blue-600 text-white ring-4 ring-blue-200'
+                        : index < currentStepIndex
                         ? 'bg-blue-600 text-white'
                         : 'bg-gray-200 text-gray-500'
                     }`}
+                    title={index === currentStepIndex ? 'Current Status' : ''}
                   >
                     {index + 1}
                   </div>
-                  <div className={`mt-2 text-xs text-center ${
-                    index <= currentStepIndex ? 'text-blue-600 font-medium' : 'text-gray-500'
+                  <div className={`mt-2 text-xs text-center font-medium ${
+                    index === currentStepIndex 
+                      ? 'text-blue-600 font-bold' 
+                      : index < currentStepIndex 
+                      ? 'text-blue-600' 
+                      : 'text-gray-500'
                   }`}>
                     {step.label}
                   </div>
@@ -128,10 +182,47 @@ export default function ProjectDetails({ projectId }: ProjectDetailsProps) {
         </dl>
       </div>
 
-      {/* Messages section - placeholder for Phase 2 */}
-      <div className="bg-white rounded-lg shadow p-6 mt-6">
-        <h2 className="text-xl font-semibold mb-4">Messages</h2>
-        <p className="text-gray-500 text-sm">Messages feature coming in Phase 2</p>
+      {/* Phase 2 Features */}
+      <div className="space-y-6 mt-6">
+        {/* Activity Timeline */}
+        <ProjectActivity projectId={projectId} />
+
+        {/* Phase 3: Estimate Section */}
+        {(actualUserId || userId) && (
+          <>
+            {/* Owner view: Full EstimateSection with editing */}
+            {(actualUserRole || userRole) === 'owner' && (
+              <EstimateSection
+                projectId={projectId}
+                ownerId={project.owner_id || ''}
+                userRole="owner"
+              />
+            )}
+            {/* Customer view: Read-only CustomerEstimateView */}
+            {(actualUserRole || userRole) === 'customer' && (
+              <CustomerEstimateView projectId={projectId} />
+            )}
+          </>
+        )}
+
+        {/* Designs Section */}
+        {(actualUserId || userId) && (
+          <ProjectDesigns 
+            projectId={projectId} 
+            userRole={actualUserRole || userRole || 'customer'}
+            userId={actualUserId || userId || ''}
+            onProjectUpdate={loadProject}
+          />
+        )}
+
+        {/* Messages Section - Place at bottom to prevent jumping */}
+        {(actualUserId || userId) && (
+          <ProjectMessages 
+            projectId={projectId} 
+            userRole={actualUserRole || userRole || 'customer'}
+            userId={actualUserId || userId || ''}
+          />
+        )}
       </div>
     </div>
   )

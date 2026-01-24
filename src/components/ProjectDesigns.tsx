@@ -30,9 +30,10 @@ interface ProjectDesignsProps {
   projectId: string
   userRole: 'owner' | 'customer'
   userId: string
+  onProjectUpdate?: () => void // Callback to refresh project data after status change
 }
 
-export default function ProjectDesigns({ projectId, userRole, userId }: ProjectDesignsProps) {
+export default function ProjectDesigns({ projectId, userRole, userId, onProjectUpdate }: ProjectDesignsProps) {
   const [designs, setDesigns] = useState<Design[]>([])
   const [approvals, setApprovals] = useState<Record<string, DesignApproval>>({})
   const [loading, setLoading] = useState(true)
@@ -194,10 +195,20 @@ export default function ProjectDesigns({ projectId, userRole, userId }: ProjectD
       return
     }
 
-    // Check if already approved (prevent double-approval)
+    // 🔧 3. Prevent double approval - Check status and approval record
     if (design.status === 'approved') {
       alert('This design has already been approved')
       await loadDesigns() // Refresh to get latest state
+      setSending(false)
+      return
+    }
+    
+    // Also check if approval record exists (double-check)
+    const existingApproval = approvals[designId]
+    if (existingApproval) {
+      alert('This design has already been approved')
+      await loadDesigns() // Refresh to get latest state
+      setSending(false)
       return
     }
 
@@ -215,10 +226,11 @@ export default function ProjectDesigns({ projectId, userRole, userId }: ProjectD
         .single()
 
       if (approvalError) {
-        // Handle duplicate approval error gracefully
+        // 🔧 3. Handle duplicate approval error gracefully
         if (approvalError.code === '23505' || approvalError.message.includes('duplicate')) {
           alert('This design has already been approved. Refreshing...')
           await loadDesigns()
+          setSending(false)
           return
         }
         throw approvalError
@@ -241,12 +253,62 @@ export default function ProjectDesigns({ projectId, userRole, userId }: ProjectD
         throw updateError
       }
 
-      // Step 3: Create activity entry
+      // Step 3: Auto-update project status if needed
+      // If project is "in_progress" and design is approved, move to "review"
+      // Use stored function to avoid RLS recursion issues
+      try {
+        const { data: projectData, error: projectError } = await supabase
+          .from('projects')
+          .select('status')
+          .eq('id', projectId)
+          .single()
+
+        if (projectError) {
+          console.error('[Design Approval] Error fetching project status:', projectError)
+        } else if (projectData) {
+          console.log('[Design Approval] Current project status:', projectData.status)
+          
+          if (projectData.status === 'in_progress') {
+            console.log('[Design Approval] Auto-progressing project to "review" status')
+            
+            // Use stored function to update status (avoids RLS recursion)
+            const { error: functionError } = await supabase.rpc('customer_progress_project_status', {
+              p_project_id: projectId
+            })
+
+            if (functionError) {
+              console.error('[Design Approval] Status update failed:', functionError)
+              // Log detailed error for debugging
+              console.error('[Design Approval] Error details:', {
+                message: functionError.message,
+                details: functionError.details,
+                hint: functionError.hint,
+                code: functionError.code
+              })
+              // Show error to user
+              alert(`Design approved, but status update failed: ${functionError.message}`)
+            } else {
+              console.log('[Design Approval] Project status updated to "review" via function')
+              // Refresh project data to show updated status
+              if (onProjectUpdate) {
+                onProjectUpdate()
+              }
+            }
+          } else {
+            console.log('[Design Approval] Project status is not "in_progress", skipping auto-progression. Current:', projectData.status)
+          }
+        }
+      } catch (statusErr) {
+        console.error('[Design Approval] Unexpected error in status update:', statusErr)
+        // Don't fail approval if status update fails, but log it
+      }
+
+      // Step 4: Create activity entry for design approval
       // Try RPC first, fallback to direct INSERT
       const activityResult = await supabase.rpc('create_project_activity', {
         p_project_id: projectId,
         p_type: 'design_approved',
-        p_description: `Customer approved design: ${design.file_name} (v${design.version})`,
+        p_description: `Customer approved design: ${design.file_name || 'Design'} (v${design.version})`,
         p_metadata: { 
           design_id: designId,
           file_name: design.file_name,
@@ -262,7 +324,7 @@ export default function ProjectDesigns({ projectId, userRole, userId }: ProjectD
           .insert({
             project_id: projectId,
             type: 'design_approved',
-            description: `Customer approved design: ${design.file_name} (v${design.version})`,
+            description: `Customer approved design: ${design.file_name || 'Design'} (v${design.version})`,
             metadata: { 
               design_id: designId,
               file_name: design.file_name,
@@ -277,10 +339,44 @@ export default function ProjectDesigns({ projectId, userRole, userId }: ProjectD
         }
       }
 
-      // Success: Clear form and refresh
+      // Success: Update UI immediately (optimistic update)
+      // Update local state before refreshing to show immediate feedback
+      setDesigns(prevDesigns => 
+        prevDesigns.map(d => 
+          d.id === designId 
+            ? { ...d, status: 'approved' as const }
+            : d
+        )
+      )
+      
+      // Update approvals map immediately
+      if (approvalData) {
+        setApprovals(prev => ({
+          ...prev,
+          [designId]: approvalData
+        }))
+      }
+      
+      // Clear form
       setApprovingDesignId(null)
       setApprovalComment('')
-      await loadDesigns()
+      
+      // Refresh to get latest data (non-blocking)
+      loadDesigns().catch(err => console.error('Error refreshing designs:', err))
+      
+      // Also refresh project data if callback is provided (to show status change)
+      if (onProjectUpdate) {
+        onProjectUpdate()
+      }
+      
+      // Notify parent component to refresh project data (for status update)
+      // Wait a bit to ensure status update completes
+      if (onProjectUpdate) {
+        setTimeout(() => {
+          console.log('[Design Approval] Refreshing project data...')
+          onProjectUpdate()
+        }, 1000) // Give time for status update to complete
+      }
     } catch (error: any) {
       console.error('Error approving design:', error)
       const errorMessage = error.code === '23505' 
@@ -377,7 +473,8 @@ export default function ProjectDesigns({ projectId, userRole, userId }: ProjectD
         <div className="space-y-4">
           {designs.map((design) => {
             const approval = approvals[design.id]
-            const isApproved = design.status === 'approved' && approval
+            // 🔧 2. UI Update: isApproved if status is approved OR approval record exists
+            const isApproved = design.status === 'approved' || !!approval
             const isLocked = isApproved // Lock approved designs
 
             return (
@@ -388,11 +485,11 @@ export default function ProjectDesigns({ projectId, userRole, userId }: ProjectD
                       <h4 className="font-medium">{design.file_name}</h4>
                       {isLocked && <span className="text-lg" title="Approved and locked">🔒</span>}
                       <span className={`px-2 py-1 text-xs rounded-full ${
-                        design.status === 'approved' ? 'bg-green-100 text-green-800' :
+                        isApproved || design.status === 'approved' ? 'bg-green-100 text-green-800' :
                         design.status === 'in_review' ? 'bg-yellow-100 text-yellow-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
-                        {design.status}
+                        {isApproved || design.status === 'approved' ? 'approved' : design.status}
                       </span>
                       <span className="text-xs text-gray-500">v{design.version}</span>
                     </div>
@@ -430,53 +527,86 @@ export default function ProjectDesigns({ projectId, userRole, userId }: ProjectD
                 </div>
 
                 {/* Approval Section (Customer only) */}
-                {userRole === 'customer' && design.status === 'in_review' && !isApproved && (
+                {userRole === 'customer' && (
                   <div className="mt-4 pt-4 border-t">
-                    {approvingDesignId === design.id ? (
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Approval Comment (optional)
-                          </label>
-                          <textarea
-                            value={approvalComment}
-                            onChange={(e) => setApprovalComment(e.target.value)}
-                            placeholder="Add your approval comment (optional)..."
-                            rows={3}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                          />
-                          <p className="text-xs text-gray-500 mt-1">
-                            Your approval will be final. You cannot approve this design again.
-                          </p>
+                    {/* Show approval info if approved (status is 'approved' OR approval record exists) */}
+                    {isApproved ? (
+                      <div className="space-y-2 bg-green-50 p-3 rounded">
+                        <div className="flex items-center space-x-2 text-green-700">
+                          <span className="text-lg">✅</span>
+                          <span className="font-medium">Approved</span>
                         </div>
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleApproveDesign(design.id)}
-                            disabled={sending}
-                            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {sending ? 'Approving...' : '✓ Approve Design'}
-                          </button>
-                          <button
-                            onClick={() => {
-                              setApprovingDesignId(null)
-                              setApprovalComment('')
-                            }}
-                            disabled={sending}
-                            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50"
-                          >
-                            Cancel
-                          </button>
+                        <div className="text-sm text-gray-600">
+                          <p className="font-medium">Approved by customer</p>
+                          {approval?.approved_at && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              {new Date(approval.approved_at).toLocaleString()}
+                            </p>
+                          )}
+                          {approval?.comment && (
+                            <p className="text-sm text-gray-700 mt-2 italic">
+                              "{approval.comment}"
+                            </p>
+                          )}
                         </div>
                       </div>
-                    ) : (
-                      <button
-                        onClick={() => setApprovingDesignId(design.id)}
-                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium"
-                      >
-                        ✓ Approve Design
-                      </button>
-                    )}
+                    ) : design.status === 'in_review' ? (
+                      /* Show approve button only if in_review and not approved */
+                      approvingDesignId === design.id ? (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Approval Comment (optional)
+                            </label>
+                            <textarea
+                              value={approvalComment}
+                              onChange={(e) => setApprovalComment(e.target.value)}
+                              placeholder="Add your approval comment (optional)..."
+                              rows={3}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                              Your approval will be final. You cannot approve this design again.
+                            </p>
+                          </div>
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => handleApproveDesign(design.id)}
+                              disabled={sending || design.status === 'approved' || isApproved}
+                              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {sending ? 'Approving...' : '✓ Approve Design'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setApprovingDesignId(null)
+                                setApprovalComment('')
+                              }}
+                              disabled={sending}
+                              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            // 🔧 3. Prevent double approval - Double-check before allowing
+                            if (design.status === 'approved' || isApproved) {
+                              alert('This design has already been approved')
+                              loadDesigns()
+                              return
+                            }
+                            setApprovingDesignId(design.id)
+                          }}
+                          disabled={design.status === 'approved' || isApproved}
+                          className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          ✓ Approve Design
+                        </button>
+                      )
+                    ) : null}
                   </div>
                 )}
 
@@ -511,19 +641,24 @@ export default function ProjectDesigns({ projectId, userRole, userId }: ProjectD
                   </div>
                 )}
 
-                {/* Approval Info - Show for both owner and customer */}
-                {isApproved && approval && (
+                {/* Approval Info - Show for owner when approved (customer sees it in their section above) */}
+                {userRole === 'owner' && isApproved && approval && (
                   <div className="mt-4 pt-4 border-t bg-green-50 p-3 rounded">
                     <div className="flex items-start space-x-2">
-                      <span className="text-green-600 text-lg">✓</span>
+                      <span className="text-green-600 text-lg">✅</span>
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-green-800">Approved</p>
-                        {approval.comment && (
-                          <p className="text-sm text-green-700 mt-1 italic">"{approval.comment}"</p>
+                        <p className="text-sm font-medium text-green-800">✅ Approved</p>
+                        <p className="text-xs text-green-700 mt-1">Approved by customer</p>
+                        {approval.approved_at && (
+                          <p className="text-xs text-green-600 mt-1">
+                            {new Date(approval.approved_at).toLocaleString()}
+                          </p>
                         )}
-                        <p className="text-xs text-green-600 mt-2">
-                          Approved on {new Date(approval.approved_at).toLocaleString()}
-                        </p>
+                        {approval.comment && (
+                          <p className="text-sm text-green-700 mt-2 italic">
+                            "{approval.comment}"
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
