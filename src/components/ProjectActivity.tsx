@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 interface Activity {
   id: string
   project_id: string
-  type: 'design_uploaded' | 'design_approved' | 'status_changed' | 'message_sent' | 'project_created'
+  type: 'design_uploaded' | 'design_approved' | 'status_changed' | 'message_sent' | 'project_created' | 'estimate_item_added' | 'estimate_item_updated' | 'estimate_item_removed' | 'estimate_settings_updated'
   description: string
   metadata: any
   created_by: string | null

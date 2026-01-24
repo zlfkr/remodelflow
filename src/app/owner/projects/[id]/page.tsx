@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import Navbar from '@/components/Navbar'
 import ProjectDetails from '@/components/ProjectDetails'
 
-export default async function ProjectDetailPage({
+export default async function OwnerProjectDetailPage({
   params,
 }: {
   params: { id: string }
@@ -21,30 +21,20 @@ export default async function ProjectDetailPage({
     .eq('id', user.id)
     .single()
 
-  if (!profile || profile.role !== 'customer') {
+  if (!profile || profile.role !== 'owner') {
     redirect('/owner')
   }
 
-  // Verify customer has access to this project
-  const { data: customer } = await supabase
-    .from('customers')
-    .select('id')
-    .eq('email', user.email!)
+  // Verify owner has access to this project
+  const { data: project } = await supabase
+    .from('projects')
+    .select('*')
+    .eq('id', params.id)
+    .eq('owner_id', user.id)
     .single()
 
-  if (customer) {
-    const { data: project } = await supabase
-      .from('projects')
-      .select('*')
-      .eq('id', params.id)
-      .eq('customer_id', customer.id)
-      .single()
-
-    if (!project) {
-      redirect('/customer')
-    }
-  } else {
-    redirect('/customer')
+  if (!project) {
+    redirect('/owner')
   }
 
   return (
@@ -53,7 +43,7 @@ export default async function ProjectDetailPage({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <ProjectDetails 
           projectId={params.id} 
-          userRole="customer"
+          userRole="owner"
           userId={user.id}
         />
       </div>

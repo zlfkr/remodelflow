@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 interface Customer {
   id: string
@@ -34,6 +35,8 @@ export default function OwnerDashboard() {
   const [showProjectForm, setShowProjectForm] = useState(false)
   const [showInviteForm, setShowInviteForm] = useState<string | null>(null)
   const [inviteLink, setInviteLink] = useState<string | null>(null)
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
 
   // Form states
   const [customerEmail, setCustomerEmail] = useState('')
@@ -41,6 +44,7 @@ export default function OwnerDashboard() {
   const [customerPhone, setCustomerPhone] = useState('')
   const [projectName, setProjectName] = useState('')
   const [projectCustomerId, setProjectCustomerId] = useState('')
+  const [projectStatus, setProjectStatus] = useState<'draft' | 'in_progress' | 'review' | 'approved' | 'completed'>('draft')
 
   useEffect(() => {
     loadData()
@@ -49,66 +53,179 @@ export default function OwnerDashboard() {
   const loadData = async () => {
     const supabase = createClient()
     
-    // Load customers
-    const { data: customersData } = await supabase
-      .from('customers')
-      .select('*')
-      .order('created_at', { ascending: false })
+    try {
+      // Load customers
+      const { data: customersData, error: customersError } = await supabase
+        .from('customers')
+        .select('*')
+        .order('created_at', { ascending: false })
 
-    if (customersData) {
-      setCustomers(customersData)
+      if (customersError) {
+        console.error('Error loading customers:', customersError)
+        alert('Error loading customers: ' + customersError.message)
+      } else {
+        console.log('Loaded customers:', customersData)
+        setCustomers(customersData || [])
+      }
+
+      // Load projects (without join to avoid RLS issues)
+      const { data: projectsData, error: projectsError } = await supabase
+        .from('projects')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (projectsError) {
+        console.error('Error loading projects:', projectsError)
+        alert('Error loading projects: ' + projectsError.message)
+      } else if (projectsData) {
+        // Manually join customer data
+        const customersList = customersData || []
+        const projectsWithCustomers = projectsData.map(project => ({
+          ...project,
+          customers: customersList.find(c => c.id === project.customer_id) || null
+        }))
+        setProjects(projectsWithCustomers as Project[])
+      } else {
+        setProjects([])
+      }
+    } catch (err: any) {
+      console.error('Error in loadData:', err)
+      alert('Error loading data: ' + err.message)
+    } finally {
+      setLoading(false)
     }
-
-    // Load projects
-    const { data: projectsData } = await supabase
-      .from('projects')
-      .select(`
-        *,
-        customers (
-          email,
-          full_name
-        )
-      `)
-      .order('created_at', { ascending: false })
-
-    if (projectsData) {
-      setProjects(projectsData as Project[])
-    }
-
-    setLoading(false)
   }
 
   const handleCreateCustomer = async (e: React.FormEvent) => {
     e.preventDefault()
     const supabase = createClient()
 
-    const { error } = await supabase
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      alert('Not authenticated')
+      return
+    }
+
+    // Check if customer already exists
+    const { data: existingCustomer } = await supabase
+      .from('customers')
+      .select('id, email, full_name')
+      .eq('owner_id', user.id)
+      .eq('email', customerEmail.toLowerCase().trim())
+      .single()
+
+    if (existingCustomer) {
+      alert(`A customer with email "${customerEmail}" already exists. Please use a different email or update the existing customer.`)
+      return
+    }
+
+    const { data, error } = await supabase
       .from('customers')
       .insert({
-        email: customerEmail,
+        owner_id: user.id,
+        email: customerEmail.toLowerCase().trim(),
         full_name: customerName || null,
         phone: customerPhone || null,
       })
+      .select()
 
     if (error) {
-      alert('Error creating customer: ' + error.message)
+      // Handle specific error cases
+      if (error.code === '23505' || error.message.includes('duplicate key')) {
+        alert(`A customer with email "${customerEmail}" already exists. Please use a different email.`)
+      } else {
+        console.error('Error creating customer:', error)
+        alert('Error creating customer: ' + error.message)
+      }
+      return
+    }
+
+    if (data && data.length > 0) {
+      console.log('Customer created successfully:', data[0])
+    }
+
+    setShowCustomerForm(false)
+    setEditingCustomer(null)
+    setCustomerEmail('')
+    setCustomerName('')
+    setCustomerPhone('')
+    
+    // Reload data to show the new customer
+    await loadData()
+  }
+
+  const handleUpdateCustomer = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingCustomer) return
+
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('customers')
+      .update({
+        email: customerEmail.toLowerCase().trim(),
+        full_name: customerName || null,
+        phone: customerPhone || null,
+      })
+      .eq('id', editingCustomer.id)
+
+    if (error) {
+      console.error('Error updating customer:', error)
+      alert('Error updating customer: ' + error.message)
       return
     }
 
     setShowCustomerForm(false)
+    setEditingCustomer(null)
     setCustomerEmail('')
     setCustomerName('')
     setCustomerPhone('')
-    loadData()
+    await loadData()
+  }
+
+  const handleDeleteCustomer = async (customerId: string) => {
+    if (!confirm('Are you sure you want to delete this customer? This will also delete all associated projects.')) {
+      return
+    }
+
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('customers')
+      .delete()
+      .eq('id', customerId)
+
+    if (error) {
+      console.error('Error deleting customer:', error)
+      alert('Error deleting customer: ' + error.message)
+      return
+    }
+
+    await loadData()
+  }
+
+  const handleEditCustomer = (customer: Customer) => {
+    setEditingCustomer(customer)
+    setCustomerEmail(customer.email)
+    setCustomerName(customer.full_name || '')
+    setCustomerPhone(customer.phone || '')
+    setShowCustomerForm(true)
   }
 
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault()
     const supabase = createClient()
 
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      alert('Not authenticated')
+      return
+    }
+
     const { error } = await supabase
       .from('projects')
       .insert({
+        owner_id: user.id,
         customer_id: projectCustomerId,
         name: projectName,
         status: 'draft',
@@ -120,9 +237,73 @@ export default function OwnerDashboard() {
     }
 
     setShowProjectForm(false)
+    setEditingProject(null)
     setProjectName('')
     setProjectCustomerId('')
-    loadData()
+    setProjectStatus('draft')
+    await loadData()
+  }
+
+  const handleUpdateProject = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingProject) return
+
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      alert('Not authenticated')
+      return
+    }
+
+    const { error } = await supabase
+      .from('projects')
+      .update({
+        name: projectName,
+        status: projectStatus,
+        customer_id: projectCustomerId,
+      })
+      .eq('id', editingProject.id)
+
+    if (error) {
+      console.error('Error updating project:', error)
+      alert('Error updating project: ' + error.message)
+      return
+    }
+
+    setShowProjectForm(false)
+    setEditingProject(null)
+    setProjectName('')
+    setProjectCustomerId('')
+    setProjectStatus('draft')
+    await loadData()
+  }
+
+  const handleDeleteProject = async (projectId: string) => {
+    if (!confirm('Are you sure you want to delete this project?')) {
+      return
+    }
+
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('projects')
+      .delete()
+      .eq('id', projectId)
+
+    if (error) {
+      console.error('Error deleting project:', error)
+      alert('Error deleting project: ' + error.message)
+      return
+    }
+
+    await loadData()
+  }
+
+  const handleEditProject = (project: Project) => {
+    setEditingProject(project)
+    setProjectName(project.name)
+    setProjectCustomerId(project.customer_id)
+    setProjectStatus(project.status as any)
+    setShowProjectForm(true)
   }
 
   const handleGenerateInvite = async (projectId: string) => {
@@ -185,6 +366,12 @@ export default function OwnerDashboard() {
           >
             Projects
           </button>
+          <Link
+            href="/owner/catalog"
+            className="py-4 px-1 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 font-medium text-sm"
+          >
+            Cost Catalog
+          </Link>
         </nav>
       </div>
 
@@ -203,8 +390,10 @@ export default function OwnerDashboard() {
 
           {showCustomerForm && (
             <div className="bg-white p-6 rounded-lg shadow mb-6">
-              <h3 className="text-lg font-medium mb-4">Create New Customer</h3>
-              <form onSubmit={handleCreateCustomer} className="space-y-4">
+              <h3 className="text-lg font-medium mb-4">
+                {editingCustomer ? 'Edit Customer' : 'Create New Customer'}
+              </h3>
+              <form onSubmit={editingCustomer ? handleUpdateCustomer : handleCreateCustomer} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Email *</label>
                   <input
@@ -238,11 +427,17 @@ export default function OwnerDashboard() {
                     type="submit"
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                   >
-                    Create
+                    {editingCustomer ? 'Update' : 'Create'}
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowCustomerForm(false)}
+                    onClick={() => {
+                      setShowCustomerForm(false)
+                      setEditingCustomer(null)
+                      setCustomerEmail('')
+                      setCustomerName('')
+                      setCustomerPhone('')
+                    }}
                     className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
                   >
                     Cancel
@@ -268,12 +463,15 @@ export default function OwnerDashboard() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Created
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {customers.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
+                    <td colSpan={5} className="px-6 py-4 text-center text-gray-500">
                       No customers yet. Create your first customer!
                     </td>
                   </tr>
@@ -291,6 +489,20 @@ export default function OwnerDashboard() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(customer.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button
+                          onClick={() => handleEditCustomer(customer)}
+                          className="text-blue-600 hover:text-blue-900 mr-4"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCustomer(customer.id)}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Delete
+                        </button>
                       </td>
                     </tr>
                   ))
@@ -316,8 +528,10 @@ export default function OwnerDashboard() {
 
           {showProjectForm && (
             <div className="bg-white p-6 rounded-lg shadow mb-6">
-              <h3 className="text-lg font-medium mb-4">Create New Project</h3>
-              <form onSubmit={handleCreateProject} className="space-y-4">
+              <h3 className="text-lg font-medium mb-4">
+                {editingProject ? 'Edit Project' : 'Create New Project'}
+              </h3>
+              <form onSubmit={editingProject ? handleUpdateProject : handleCreateProject} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Project Name *</label>
                   <input
@@ -344,16 +558,39 @@ export default function OwnerDashboard() {
                     ))}
                   </select>
                 </div>
+                {editingProject && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Status *</label>
+                    <select
+                      required
+                      value={projectStatus}
+                      onChange={(e) => setProjectStatus(e.target.value as any)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      <option value="draft">Draft</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="review">Review</option>
+                      <option value="approved">Approved</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                  </div>
+                )}
                 <div className="flex space-x-2">
                   <button
                     type="submit"
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                   >
-                    Create
+                    {editingProject ? 'Update' : 'Create'}
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowProjectForm(false)}
+                    onClick={() => {
+                      setShowProjectForm(false)
+                      setEditingProject(null)
+                      setProjectName('')
+                      setProjectCustomerId('')
+                      setProjectStatus('draft')
+                    }}
                     className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
                   >
                     Cancel
@@ -392,7 +629,12 @@ export default function OwnerDashboard() {
                   projects.map((project) => (
                     <tr key={project.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {project.name}
+                        <Link
+                          href={`/owner/projects/${project.id}`}
+                          className="text-blue-600 hover:text-blue-800"
+                        >
+                          {project.name}
+                        </Link>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {project.customers?.full_name || project.customers?.email || '-'}
@@ -407,35 +649,51 @@ export default function OwnerDashboard() {
                           {project.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <button
-                          onClick={() => handleGenerateInvite(project.id)}
-                          className="text-blue-600 hover:text-blue-900"
-                        >
-                          Generate Invite
-                        </button>
-                        {showInviteForm === project.id && inviteLink && (
-                          <div className="mt-2 p-2 bg-gray-50 rounded border">
-                            <p className="text-xs text-gray-600 mb-1">Invite Link:</p>
-                            <div className="flex items-center space-x-2">
-                              <input
-                                type="text"
-                                readOnly
-                                value={inviteLink}
-                                className="flex-1 text-xs px-2 py-1 border rounded"
-                              />
-                              <button
-                                onClick={() => {
-                                  navigator.clipboard.writeText(inviteLink)
-                                  alert('Link copied to clipboard!')
-                                }}
-                                className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
-                              >
-                                Copy
-                              </button>
-                            </div>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <div className="flex flex-col space-y-1">
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => handleEditProject(project)}
+                              className="text-blue-600 hover:text-blue-900"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteProject(project.id)}
+                              className="text-red-600 hover:text-red-900"
+                            >
+                              Delete
+                            </button>
                           </div>
-                        )}
+                          <button
+                            onClick={() => handleGenerateInvite(project.id)}
+                            className="text-green-600 hover:text-green-900 text-left"
+                          >
+                            Generate Invite
+                          </button>
+                          {showInviteForm === project.id && inviteLink && (
+                            <div className="mt-2 p-2 bg-gray-50 rounded border">
+                              <p className="text-xs text-gray-600 mb-1">Invite Link:</p>
+                              <div className="flex items-center space-x-2">
+                                <input
+                                  type="text"
+                                  readOnly
+                                  value={inviteLink}
+                                  className="flex-1 text-xs px-2 py-1 border rounded"
+                                />
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(inviteLink)
+                                    alert('Link copied to clipboard!')
+                                  }}
+                                  className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))

@@ -10,26 +10,64 @@ export default function SignupPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    setSuccess(null)
     setLoading(true)
 
     try {
       const supabase = createClient()
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/onboarding`,
+        },
       })
 
-      if (error) throw error
+      if (error) {
+        console.error('Signup error:', error)
+        throw error
+      }
 
-      router.push('/onboarding')
-      router.refresh()
+      console.log('Signup response:', { user: data.user, session: data.session })
+
+      // Check if email confirmation is required
+      if (data.user && !data.session) {
+        setSuccess(
+          'Account created! Please check your email to confirm your account. After confirming, you can log in.'
+        )
+        // Clear form
+        setEmail('')
+        setPassword('')
+        return
+      }
+
+      // If we have a session, proceed to onboarding
+      if (data.session && data.user) {
+        setSuccess('Account created successfully! Redirecting...')
+        setTimeout(() => {
+          router.push('/onboarding')
+          router.refresh()
+        }, 1000)
+        return
+      }
+
+      // Fallback: if user was created but no clear path
+      if (data.user) {
+        setSuccess('Account created! Please check your email or try logging in.')
+        setEmail('')
+        setPassword('')
+      } else {
+        throw new Error('User was not created. Please try again.')
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to sign up')
+      console.error('Signup exception:', err)
+      setError(err.message || 'Failed to sign up. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -47,6 +85,11 @@ export default function SignupPage() {
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
               {error}
+            </div>
+          )}
+          {success && (
+            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
+              {success}
             </div>
           )}
           <div className="space-y-4">

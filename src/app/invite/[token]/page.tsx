@@ -11,6 +11,7 @@ export default function InvitePage() {
   const token = params?.token as string
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
   const [invite, setInvite] = useState<any>(null)
   const [project, setProject] = useState<any>(null)
 
@@ -77,15 +78,30 @@ export default function InvitePage() {
 
     if (!user || !invite) return
 
-    // Mark invite as used
-    await supabase
-      .from('project_invites')
-      .update({ used_at: new Date().toISOString() })
-      .eq('id', invite.id)
+    try {
+      // Mark invite as used
+      const { error: updateError } = await supabase
+        .from('project_invites')
+        .update({ used_at: new Date().toISOString() })
+        .eq('id', invite.id)
 
-    // Redirect to customer portal
-    router.push('/customer')
-    router.refresh()
+      if (updateError) {
+        setError('Failed to accept invite: ' + updateError.message)
+        return
+      }
+
+      // Show success message
+      setSuccess(true)
+      setError(null)
+      
+      // Redirect to customer portal where they can see their project
+      setTimeout(() => {
+        router.push('/customer')
+        router.refresh()
+      }, 2000)
+    } catch (err: any) {
+      setError('An error occurred: ' + err.message)
+    }
   }
 
   if (loading) {
@@ -120,10 +136,25 @@ export default function InvitePage() {
       <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-md">
         <div className="text-center">
           <h2 className="text-2xl font-bold text-gray-900 mb-4">Project Invitation</h2>
-          {project && (
+          {success ? (
+            <div>
+              <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded mb-4">
+                <p className="font-semibold">Invite Accepted!</p>
+                <p className="text-sm mt-1">Redirecting you to your projects...</p>
+              </div>
+              {project && (
+                <p className="text-gray-600">
+                  You now have access to: <strong>{project.name}</strong>
+                </p>
+              )}
+            </div>
+          ) : project ? (
             <>
               <p className="text-gray-600 mb-6">
                 You've been invited to view the project: <strong>{project.name}</strong>
+              </p>
+              <p className="text-sm text-gray-500 mb-4">
+                After accepting, you'll be able to view project details, status, and communicate with your project manager.
               </p>
               <button
                 onClick={handleAcceptInvite}
@@ -132,7 +163,7 @@ export default function InvitePage() {
                 Accept Invite
               </button>
             </>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

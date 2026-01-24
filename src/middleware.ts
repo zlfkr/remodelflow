@@ -46,14 +46,15 @@ export async function middleware(request: NextRequest) {
 
   // If user is authenticated and trying to access auth pages
   if (user && isPublicRoute) {
-    // Check if profile is complete
-    const { data: profile } = await supabase
+    // Check if profile is complete (handle errors gracefully)
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('full_name, role')
       .eq('id', user.id)
       .single()
 
-    if (!profile?.full_name) {
+    // If profile doesn't exist or is incomplete, redirect to onboarding
+    if (profileError || !profile?.full_name) {
       return NextResponse.redirect(new URL('/onboarding', request.url))
     }
 
@@ -67,23 +68,33 @@ export async function middleware(request: NextRequest) {
 
   // If user is authenticated and accessing protected routes
   if (user && !isPublicRoute) {
-    const { data: profile } = await supabase
+    // Allow access to onboarding even if profile query fails
+    if (pathname === '/onboarding') {
+      return response
+    }
+
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('full_name, role')
       .eq('id', user.id)
       .single()
 
+    // If profile doesn't exist or query failed, redirect to onboarding
+    if (profileError || !profile) {
+      return NextResponse.redirect(new URL('/onboarding', request.url))
+    }
+
     // Redirect to onboarding if profile incomplete
-    if (!profile?.full_name && pathname !== '/onboarding') {
+    if (!profile.full_name) {
       return NextResponse.redirect(new URL('/onboarding', request.url))
     }
 
     // Role-based route protection
-    if (profile?.role === 'owner' && pathname.startsWith('/customer')) {
+    if (profile.role === 'owner' && pathname.startsWith('/customer')) {
       return NextResponse.redirect(new URL('/owner', request.url))
     }
 
-    if (profile?.role === 'customer' && pathname.startsWith('/owner')) {
+    if (profile.role === 'customer' && pathname.startsWith('/owner')) {
       return NextResponse.redirect(new URL('/customer', request.url))
     }
   }

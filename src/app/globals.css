@@ -18,6 +18,14 @@ body {
   color: var(--foreground);
   background: var(--background);
   font-family: Arial, Helvetica, sans-serif;
+  scroll-behavior: smooth;
+}
+
+/* Prevent layout shifts */
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
 }
 
 @layer utilities {

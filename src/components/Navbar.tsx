@@ -2,11 +2,25 @@
 
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import Notifications from './Notifications'
 
 export default function Navbar() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [userId, setUserId] = useState<string>('')
+
+  useEffect(() => {
+    loadUser()
+  }, [])
+
+  const loadUser = async () => {
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      setUserId(user.id)
+    }
+  }
 
   const handleLogout = async () => {
     setLoading(true)
@@ -23,7 +37,8 @@ export default function Navbar() {
           <div className="flex items-center">
             <h1 className="text-xl font-bold text-gray-900">RemodelFlow</h1>
           </div>
-          <div className="flex items-center">
+          <div className="flex items-center space-x-4">
+            {userId && <Notifications userId={userId} />}
             <button
               onClick={handleLogout}
               disabled={loading}
