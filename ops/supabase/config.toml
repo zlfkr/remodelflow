@@ -1,0 +1,55 @@
+# Supabase Configuration
+# This file configures your Supabase project
+
+[project]
+# Project ID (set when linking to remote project)
+# id = "your-project-id"
+
+[api]
+# API port (default: 54321)
+# port = 54321
+
+# Enable REST API (default: true)
+# enabled = true
+
+# Enable GraphQL API (default: false)
+# enabled = false
+
+[db]
+# Database port (default: 54322)
+# port = 54322
+
+# Database password (default: generated)
+# password = "your-password"
+
+[studio]
+# Studio port (default: 54323)
+# port = 54323
+
+# Enable Studio (default: true)
+# enabled = true
+
+[functions]
+# Functions port (default: 54324)
+# port = 54324
+
+# Enable Functions (default: true)
+# enabled = true
+
+# Functions directory (default: supabase/functions)
+# directory = "supabase/functions"
+
+[storage]
+# Storage port (default: 54325)
+# port = 54325
+
+# Enable Storage (default: true)
+# enabled = true
+
+[edge_runtime]
+# Edge Runtime settings
+# Deno version (default: latest)
+# deno_version = "1.37.0"
+
+# Enable edge runtime (default: true)
+# enabled = true
