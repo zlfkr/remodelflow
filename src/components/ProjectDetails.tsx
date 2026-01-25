@@ -9,6 +9,7 @@ import ProjectActivity from './ProjectActivity'
 import StatusProgressControl from './StatusProgressControl'
 import EstimateSection from './EstimateSection'
 import CustomerEstimateView from './CustomerEstimateView'
+import CabinetBulkUpload from './cabinets/CabinetBulkUpload'
 
 interface Project {
   id: string
@@ -31,6 +32,7 @@ export default function ProjectDetails({ projectId, userRole, userId }: ProjectD
   const [loading, setLoading] = useState(true)
   const [actualUserRole, setActualUserRole] = useState<'owner' | 'customer'>(userRole || 'customer')
   const [actualUserId, setActualUserId] = useState<string>(userId || '')
+  const [activeTab, setActiveTab] = useState<'overview' | 'cabinets'>('overview')
 
   useEffect(() => {
     if (!userRole || !userId) {
@@ -182,48 +184,83 @@ export default function ProjectDetails({ projectId, userRole, userId }: ProjectD
         </dl>
       </div>
 
-      {/* Phase 2 Features */}
-      <div className="space-y-6 mt-6">
-        {/* Activity Timeline */}
-        <ProjectActivity projectId={projectId} />
-
-        {/* Phase 3: Estimate Section */}
-        {(actualUserId || userId) && (
-          <>
-            {/* Owner view: Full EstimateSection with editing */}
-            {(actualUserRole || userRole) === 'owner' && (
-              <EstimateSection
-                projectId={projectId}
-                ownerId={project.owner_id || ''}
-                userRole="owner"
-              />
-            )}
-            {/* Customer view: Read-only CustomerEstimateView */}
-            {(actualUserRole || userRole) === 'customer' && (
-              <CustomerEstimateView projectId={projectId} />
-            )}
-          </>
-        )}
-
-        {/* Designs Section */}
-        {(actualUserId || userId) && (
-          <ProjectDesigns 
-            projectId={projectId} 
-            userRole={actualUserRole || userRole || 'customer'}
-            userId={actualUserId || userId || ''}
-            onProjectUpdate={loadProject}
-          />
-        )}
-
-        {/* Messages Section - Place at bottom to prevent jumping */}
-        {(actualUserId || userId) && (
-          <ProjectMessages 
-            projectId={projectId} 
-            userRole={actualUserRole || userRole || 'customer'}
-            userId={actualUserId || userId || ''}
-          />
-        )}
+      {/* Tabs */}
+      <div className="border-b border-gray-200 mb-6 mt-6">
+        <nav className="-mb-px flex space-x-8">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'overview'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Overview
+          </button>
+          {(actualUserRole || userRole) === 'owner' && (
+            <button
+              onClick={() => setActiveTab('cabinets')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'cabinets'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Cabinets
+            </button>
+          )}
+        </nav>
       </div>
+
+      {/* Tab Content */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          {/* Activity Timeline */}
+          <ProjectActivity projectId={projectId} />
+
+          {/* Phase 3: Estimate Section */}
+          {(actualUserId || userId) && (
+            <>
+              {/* Owner view: Full EstimateSection with editing */}
+              {(actualUserRole || userRole) === 'owner' && (
+                <EstimateSection
+                  projectId={projectId}
+                  ownerId={project.owner_id || ''}
+                  userRole="owner"
+                />
+              )}
+              {/* Customer view: Read-only CustomerEstimateView */}
+              {(actualUserRole || userRole) === 'customer' && (
+                <CustomerEstimateView projectId={projectId} />
+              )}
+            </>
+          )}
+
+          {/* Designs Section */}
+          {(actualUserId || userId) && (
+            <ProjectDesigns 
+              projectId={projectId} 
+              userRole={actualUserRole || userRole || 'customer'}
+              userId={actualUserId || userId || ''}
+              onProjectUpdate={loadProject}
+            />
+          )}
+
+          {/* Messages Section - Place at bottom to prevent jumping */}
+          {(actualUserId || userId) && (
+            <ProjectMessages 
+              projectId={projectId} 
+              userRole={actualUserRole || userRole || 'customer'}
+              userId={actualUserId || userId || ''}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Cabinets Tab - Owner only */}
+      {activeTab === 'cabinets' && (actualUserRole || userRole) === 'owner' && (
+        <CabinetBulkUpload projectId={projectId} />
+      )}
     </div>
   )
 }

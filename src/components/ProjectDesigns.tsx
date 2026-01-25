@@ -3,6 +3,234 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
+// Component to handle signed URLs for design images (for private buckets)
+function DesignImage({ fileUrl, fileName, projectId, userRole }: { fileUrl: string, fileName: string, projectId: string, userRole: string }) {
+  const [imageUrl, setImageUrl] = useState<string>(fileUrl)
+  const [error, setError] = useState(false)
+  const [loading, setLoading] = useState(userRole === 'customer') // Show loading for customers while generating signed URL
+
+  useEffect(() => {
+    // Try signed URL first for customers, fallback to public URL
+    // For owners, use public URL directly
+    if (userRole === 'customer') {
+      const supabase = createClient()
+      // Extract file path from URL
+      // Format: https://[project].supabase.co/storage/v1/object/public/project-designs/project_id/filename
+      // OR: https://[project].supabase.co/storage/v1/object/sign/project-designs/project_id/filename
+      let filePath = ''
+      
+      // Method 1: Try to extract path after 'project-designs/'
+      const projectDesignsIndex = fileUrl.indexOf('/project-designs/')
+      if (projectDesignsIndex !== -1) {
+        filePath = fileUrl.substring(projectDesignsIndex + '/project-designs/'.length)
+        // Remove any query parameters or hash
+        filePath = filePath.split('?')[0].split('#')[0]
+      } else {
+        // Method 2: Try to extract from URL parts
+        const parts = fileUrl.split('/')
+        const bucketIndex = parts.findIndex(p => p === 'project-designs')
+        if (bucketIndex !== -1 && bucketIndex < parts.length - 1) {
+          filePath = parts.slice(bucketIndex + 1).join('/').split('?')[0].split('#')[0]
+        }
+      }
+      
+      // Clean up the file path (remove any trailing slashes or extra characters)
+      if (filePath) {
+        filePath = filePath.trim()
+        // Remove leading slash if present
+        if (filePath.startsWith('/')) {
+          filePath = filePath.substring(1)
+        }
+      }
+      
+      if (filePath) {
+        console.log('[DesignImage] Attempting to generate signed URL for:', filePath, 'from original URL:', fileUrl)
+        // Generate signed URL (valid for 1 hour)
+        supabase.storage
+          .from('project-designs')
+          .createSignedUrl(filePath, 3600)
+          .then(({ data, error }) => {
+            setLoading(false)
+            if (error) {
+              console.error('[DesignImage] Signed URL generation failed:', {
+                error: error.message,
+                status: error.statusCode,
+                filePath: filePath,
+                originalUrl: fileUrl
+              })
+              // Fallback: use public URL (bucket might be public, or policy allows it)
+              console.log('[DesignImage] Falling back to public URL')
+              setImageUrl(fileUrl)
+            } else if (data?.signedUrl) {
+              console.log('[DesignImage] Signed URL generated successfully:', data.signedUrl.substring(0, 50) + '...')
+              setImageUrl(data.signedUrl)
+            } else {
+              // No signed URL returned, use public URL
+              console.warn('[DesignImage] No signed URL in response, using public URL')
+              setImageUrl(fileUrl)
+            }
+          })
+          .catch((err) => {
+            setLoading(false)
+            console.error('[DesignImage] Exception creating signed URL:', err)
+            // Fallback to public URL
+            setImageUrl(fileUrl)
+          })
+      } else {
+        setLoading(false)
+        console.error('[DesignImage] Could not extract file path from URL:', fileUrl)
+        // Fallback: use public URL directly
+        setImageUrl(fileUrl)
+      }
+    } else {
+      // For owners, use public URL directly
+      setLoading(false)
+    }
+  }, [fileUrl, userRole])
+
+  if (loading) {
+    return (
+      <div className="w-full h-full min-h-[200px] max-h-[400px] flex items-center justify-center bg-gray-50 rounded">
+        <div className="text-gray-500 text-sm">Loading image...</div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="text-red-600 text-sm p-4 text-center">
+        <p className="mb-2">Error loading image</p>
+        <button
+          onClick={() => {
+            // Retry by reloading the component
+            setError(false)
+            setLoading(true)
+            setImageUrl(fileUrl)
+            // Force re-render by updating state
+            setTimeout(() => setLoading(false), 100)
+          }}
+          className="text-xs underline text-blue-600 hover:text-blue-800"
+        >
+          Click to retry
+        </button>
+        <p className="text-xs text-gray-500 mt-2">Or try opening in new tab</p>
+        <a
+          href={fileUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-blue-600 hover:text-blue-800 underline block mt-1"
+        >
+          Open image
+        </a>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative w-full h-full min-h-[200px] max-h-[400px] flex items-center justify-center bg-gray-50 rounded overflow-hidden">
+      <img
+        src={imageUrl}
+        alt={fileName}
+        className="max-w-full max-h-full w-auto h-auto object-contain cursor-pointer hover:opacity-90 transition-opacity"
+        loading="lazy"
+        style={{ 
+          display: 'block'
+        }}
+        onError={(e) => {
+          const img = e.target as HTMLImageElement
+          console.error('[DesignImage] Image load error')
+          console.error('[DesignImage] Failed URL:', imageUrl)
+          console.error('[DesignImage] Image src:', img.src)
+          console.error('[DesignImage] Original file URL:', fileUrl)
+          console.error('[DesignImage] User role:', userRole)
+          
+          // If signed URL failed, try public URL as last resort
+          if (userRole === 'customer' && imageUrl !== fileUrl) {
+            console.log('[DesignImage] Retrying with public URL (original fileUrl)')
+            setImageUrl(fileUrl)
+            setError(false) // Reset error to try again
+          } else {
+            console.error('[DesignImage] All retry attempts failed, showing error state')
+            setError(true)
+          }
+        }}
+        onLoad={() => {
+          // Image loaded successfully
+          setError(false)
+        }}
+        onClick={() => {
+          // Open image in new tab for full view
+          window.open(imageUrl, '_blank')
+        }}
+        title="Click to view full size"
+      />
+    </div>
+  )
+}
+
+// Component to handle signed URLs for design files (PDFs, etc.)
+function DesignFileLink({ fileUrl, fileName, projectId, userRole }: { fileUrl: string, fileName: string, projectId: string, userRole: string }) {
+  const [signedUrl, setSignedUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    // For customers, generate signed URL (bucket is private)
+    // For owners, use public URL
+    if (userRole === 'customer') {
+      const supabase = createClient()
+      // Extract file path from URL
+      let filePath = ''
+      
+      const projectDesignsIndex = fileUrl.indexOf('/project-designs/')
+      if (projectDesignsIndex !== -1) {
+        filePath = fileUrl.substring(projectDesignsIndex + '/project-designs/'.length)
+        filePath = filePath.split('?')[0] // Remove query params
+      } else {
+        const parts = fileUrl.split('/')
+        const bucketIndex = parts.findIndex(p => p === 'project-designs')
+        if (bucketIndex !== -1 && bucketIndex < parts.length - 1) {
+          filePath = parts.slice(bucketIndex + 1).join('/').split('?')[0]
+        }
+      }
+      
+      if (filePath) {
+        // Generate signed URL (valid for 1 hour)
+        supabase.storage
+          .from('project-designs')
+          .createSignedUrl(filePath, 3600)
+          .then(({ data, error }) => {
+            if (error) {
+              console.error('Error creating signed URL:', error, 'File path:', filePath)
+            } else if (data) {
+              setSignedUrl(data.signedUrl)
+            }
+          })
+      } else {
+        console.error('Could not extract file path from URL:', fileUrl)
+      }
+    } else {
+      // Owners can use public URL
+      setSignedUrl(fileUrl)
+    }
+  }, [fileUrl, userRole])
+
+  if (!signedUrl) {
+    return (
+      <div className="text-gray-500 text-sm">Loading...</div>
+    )
+  }
+
+  return (
+    <a
+      href={signedUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+    >
+      View PDF
+    </a>
+  )
+}
+
 interface Design {
   id: string
   project_id: string
@@ -119,17 +347,22 @@ export default function ProjectDesigns({ projectId, userRole, userId, onProjectU
         throw uploadError
       }
 
-      // Get public URL
+      // Get public URL (even for private buckets, this gives us the URL structure)
+      // For private buckets, we'll use signed URLs when viewing
       const { data: urlData } = supabase.storage
         .from('project-designs')
         .getPublicUrl(fileName)
+
+      // Store the public URL format (even if bucket is private, this is the reference)
+      // The actual file path is: fileName (project_id/filename)
+      const fileUrl = urlData.publicUrl
 
       // Create design record
       const { data: designData, error: designError } = await supabase
         .from('project_designs')
         .insert({
           project_id: projectId,
-          file_url: urlData.publicUrl,
+          file_url: fileUrl,
           file_name: selectedFile.name,
           file_type: selectedFile.type,
           file_size: selectedFile.size,
@@ -470,7 +703,7 @@ export default function ProjectDesigns({ projectId, userRole, userId, onProjectU
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {designs.map((design) => {
             const approval = approvals[design.id]
             // 🔧 2. UI Update: isApproved if status is approved OR approval record exists
@@ -478,11 +711,11 @@ export default function ProjectDesigns({ projectId, userRole, userId, onProjectU
             const isLocked = isApproved // Lock approved designs
 
             return (
-              <div key={design.id} className={`border rounded-lg p-4 ${isLocked ? 'bg-green-50 border-green-200' : ''}`}>
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2">
-                      <h4 className="font-medium">{design.file_name}</h4>
+              <div key={design.id} className={`border rounded-lg p-4 flex flex-col ${isLocked ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center space-x-2 flex-wrap">
+                      <h4 className="font-medium text-sm truncate">{design.file_name}</h4>
                       {isLocked && <span className="text-lg" title="Approved and locked">🔒</span>}
                       <span className={`px-2 py-1 text-xs rounded-full ${
                         isApproved || design.status === 'approved' ? 'bg-green-100 text-green-800' :
@@ -503,26 +736,23 @@ export default function ProjectDesigns({ projectId, userRole, userId, onProjectU
                 </div>
 
                 {/* Design Preview/Download */}
-                <div className="mt-3">
+                <div className="mt-3 flex-1 flex items-center justify-center bg-gray-50 rounded border overflow-hidden">
                   {design.file_type?.startsWith('image/') ? (
-                    <div className="relative">
-                      <img
-                        src={design.file_url}
-                        alt={design.file_name}
-                        className="max-w-full h-auto rounded border"
-                        loading="lazy"
-                        style={{ display: 'block' }}
+                    <DesignImage 
+                      fileUrl={design.file_url}
+                      fileName={design.file_name}
+                      projectId={projectId}
+                      userRole={userRole}
+                    />
+                  ) : (
+                    <div className="p-4">
+                      <DesignFileLink 
+                        fileUrl={design.file_url}
+                        fileName={design.file_name}
+                        projectId={projectId}
+                        userRole={userRole}
                       />
                     </div>
-                  ) : (
-                    <a
-                      href={design.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-                    >
-                      View PDF
-                    </a>
                   )}
                 </div>
 

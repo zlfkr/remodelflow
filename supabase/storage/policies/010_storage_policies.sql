@@ -38,16 +38,15 @@ USING (
 );
 
 -- Policy: Customers can view files for their assigned projects
+-- Uses helper function to avoid RLS recursion
 CREATE POLICY "Customers can view design files"
 ON storage.objects FOR SELECT
 TO authenticated
 USING (
   bucket_id = 'project-designs' AND
   (storage.foldername(name))[1] IN (
-    SELECT id::text FROM projects WHERE customer_id IN (
-      SELECT id FROM customers WHERE email = (
-        current_setting('request.jwt.claims', true)::json->>'email'
-      )
-    )
+    SELECT id::text 
+    FROM projects 
+    WHERE customer_id = public.get_current_customer_id()
   )
 );
