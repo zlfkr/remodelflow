@@ -37,6 +37,7 @@ export default function OwnerDashboard() {
   const [inviteLink, setInviteLink] = useState<string | null>(null)
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const [showDemo, setShowDemo] = useState(false)
 
   // Form states
   const [customerEmail, setCustomerEmail] = useState('')
@@ -345,7 +346,7 @@ export default function OwnerDashboard() {
     <div>
       {/* Tabs */}
       <div className="border-b border-gray-200 mb-6">
-        <nav className="-mb-px flex space-x-8">
+        <nav className="-mb-px flex flex-wrap items-center gap-x-6 gap-y-2">
           <button
             onClick={() => setActiveTab('customers')}
             className={`py-4 px-1 border-b-2 font-medium text-sm ${
@@ -372,6 +373,21 @@ export default function OwnerDashboard() {
           >
             Cost Catalog
           </Link>
+          {/* Spacer to push Layout Builder button to the right */}
+          <div className="flex-1" />
+          {/* Wall Elevation - full canvas editor */}
+          <Link
+            href="/wall-elevation"
+            className="py-2 px-4 bg-black text-white rounded-md hover:bg-gray-800 font-medium text-sm transition-colors whitespace-nowrap"
+          >
+            Wall Elevation
+          </Link>
+          <button
+            onClick={() => setShowDemo(true)}
+            className="py-2 px-4 border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-100 font-medium text-sm transition-colors whitespace-nowrap"
+          >
+            Load Marketing Demo
+          </button>
         </nav>
       </div>
 
@@ -516,14 +532,22 @@ export default function OwnerDashboard() {
       {/* Projects Tab */}
       {activeTab === 'projects' && (
         <div>
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
             <h2 className="text-2xl font-semibold text-gray-900">Projects</h2>
-            <button
-              onClick={() => setShowProjectForm(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              Create Project
-            </button>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/owner/projects"
+                className="text-sm font-medium text-gray-600 hover:text-gray-900"
+              >
+                View full list →
+              </Link>
+              <button
+                onClick={() => setShowProjectForm(true)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Create Project
+              </button>
+            </div>
           </div>
 
           {showProjectForm && (
@@ -703,6 +727,7 @@ export default function OwnerDashboard() {
           </div>
         </div>
       )}
+      {/* MarketingDemoShowroom removed — optional demo component; add from @/app/marketing/MarketingDemoShowroom when available */}
     </div>
   )
 }
