@@ -1,7 +1,9 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import Navbar from '@/components/Navbar'
+import Breadcrumbs from '@/components/ui/Breadcrumbs'
 import ProjectDetails from '@/components/ProjectDetails'
+import DesignPreviewSection from '@/components/designs/DesignPreviewSection'
 
 export default async function ProjectDetailPage({
   params,
@@ -32,14 +34,17 @@ export default async function ProjectDetailPage({
     .eq('email', user.email!)
     .single()
 
+  let project: { id: string; name: string; owner_id: string; customer_id: string | null } | null = null
+
   if (customer) {
-    const { data: project } = await supabase
+    const { data: projectData } = await supabase
       .from('projects')
       .select('*')
       .eq('id', params.id)
       .eq('customer_id', customer.id)
       .single()
 
+    project = projectData
     if (!project) {
       redirect('/customer')
     }
@@ -51,11 +56,25 @@ export default async function ProjectDetailPage({
     <div className="min-h-screen bg-gray-50">
       <Navbar />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <Breadcrumbs
+          items={[
+            { label: 'Customer', href: '/customer' },
+            { label: 'My Projects', href: '/customer' },
+            { label: project?.name ?? 'Project' },
+          ]}
+        />
         <ProjectDetails 
           projectId={params.id} 
           userRole="customer"
           userId={user.id}
         />
+        {project && (
+          <DesignPreviewSection
+            projectId={params.id}
+            ownerId={project.owner_id}
+            customerId={customer?.id ?? null}
+          />
+        )}
       </div>
     </div>
   )

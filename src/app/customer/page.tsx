@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import Navbar from '@/components/Navbar'
+import Breadcrumbs from '@/components/ui/Breadcrumbs'
 import CustomerPortal from '@/components/CustomerPortal'
 
 export default async function CustomerPage() {
@@ -25,6 +26,7 @@ export default async function CustomerPage() {
     <div className="min-h-screen bg-gray-50">
       <Navbar />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <Breadcrumbs items={[{ label: 'Customer', href: '/customer' }, { label: 'My Projects' }]} />
         <h1 className="text-3xl font-bold text-gray-900 mb-6">
           Welcome, {profile.full_name || 'Customer'}
         </h1>

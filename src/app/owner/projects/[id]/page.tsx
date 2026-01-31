@@ -1,7 +1,9 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import Navbar from '@/components/Navbar'
+import Breadcrumbs from '@/components/ui/Breadcrumbs'
 import ProjectDetails from '@/components/ProjectDetails'
+import DesignPreviewSection from '@/components/designs/DesignPreviewSection'
 
 export default async function OwnerProjectDetailPage({
   params,
@@ -25,26 +27,37 @@ export default async function OwnerProjectDetailPage({
     redirect('/owner')
   }
 
-  // Verify owner has access to this project
   const { data: project } = await supabase
     .from('projects')
-    .select('*')
+    .select('id, name, customer_id')
     .eq('id', params.id)
     .eq('owner_id', user.id)
     .single()
 
   if (!project) {
-    redirect('/owner')
+    redirect('/owner/projects')
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <ProjectDetails 
-          projectId={params.id} 
+        <Breadcrumbs
+          items={[
+            { label: 'Owner', href: '/owner' },
+            { label: 'Projects', href: '/owner/projects' },
+            { label: project.name },
+          ]}
+        />
+        <ProjectDetails
+          projectId={params.id}
           userRole="owner"
           userId={user.id}
+        />
+        <DesignPreviewSection
+          projectId={params.id}
+          ownerId={user.id}
+          customerId={project.customer_id ?? null}
         />
       </div>
     </div>
